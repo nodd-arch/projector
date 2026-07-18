@@ -65,6 +65,3 @@ bible.db
 static/
 icons/
 .vscode/
-
-# download bible.db here: https://drive.google.com/file/d/1pWbZSeowKRf1C6LqDP4jO9v7HS5ZbzUo/view?usp=sharing
-# place it in src-tauri\bible.db
