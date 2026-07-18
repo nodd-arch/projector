@@ -1,0 +1,50 @@
+:root {
+  --bg-base: #14161a;
+  --bg-panel: #1b1e24;
+  --bg-raised: #22262e;
+  --border: #2a2e37;
+
+  --text-primary: #edeff2;
+  --text-muted: #8b93a1;
+  --text-faint: #565c68;
+
+  --accent-live: #e8484b;
+  --accent-live-dim: #e8484b33;
+  --accent-amber: #e0a72e;
+
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', ui-monospace, 'SF Mono', monospace;
+  --font-body: 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+
+  --radius: 6px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+button {
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+input, select {
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: var(--accent-live-dim);
+}
