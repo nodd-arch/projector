@@ -13,9 +13,11 @@ pub fn search_scripture(
     let conn = state.0.lock().map_err(|e| e.to_string())?;
 
     match parse_query(&query) {
-        ParsedQuery::Reference { book, chapter, verse } => {
-            get_reference(&conn, &book, chapter, verse, translation_id)
-        }
+        ParsedQuery::Reference {
+            book,
+            chapter,
+            verse,
+        } => get_reference(&conn, &book, chapter, verse, translation_id),
         ParsedQuery::Keyword { term, book } => keyword_search(&conn, &term, translation_id, book),
     }
 }
@@ -334,22 +336,6 @@ pub fn hide_projection_window(app_handle: tauri::AppHandle) -> Result<(), String
 }
 
 #[tauri::command]
-pub fn add_history_entry(
-    history: State<crate::history::HistoryState>,
-    verse: Verse,
-    translation_abbr: String,
-) -> Result<(), String> {
-    let conn = history.0.lock().map_err(|e| e.to_string())?;
-    let verse_json = serde_json::to_string(&verse).map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO history (verse_json, translation_abbr) VALUES (?1, ?2)",
-        rusqlite::params![verse_json, translation_abbr],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
 pub fn get_history(
     history: State<crate::history::HistoryState>,
 ) -> Result<Vec<serde_json::Value>, String> {
@@ -471,4 +457,35 @@ pub struct BackgroundConfig {
     pub value: String,
     pub opacity: f64,
     pub position: String, // "left" | "center" | "right"
+}
+#[tauri::command]
+pub fn add_history_entry(
+    history: State<crate::history::HistoryState>,
+    verse: Verse,
+    translation_abbr: String,
+) -> Result<(), String> {
+    let conn = history.0.lock().map_err(|e| e.to_string())?;
+
+    let last: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT json_extract(verse_json, '$.verseid'), translation_abbr
+             FROM history ORDER BY id DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+
+    if let Some((last_verseid, last_abbr)) = last {
+        if last_verseid == verse.verseid && last_abbr == translation_abbr {
+            return Ok(()); // identical to the most recent entry, skip
+        }
+    }
+
+    let verse_json = serde_json::to_string(&verse).map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO history (verse_json, translation_abbr) VALUES (?1, ?2)",
+        rusqlite::params![verse_json, translation_abbr],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }

@@ -159,14 +159,25 @@
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
   }
 
-  function isLive(v) {
-    return (
+  function computeLive(v, abbr) {
+    return !!(
       $projectedRef &&
+      $livePreview &&
       $projectedRef.bookid === v.bookid &&
       $projectedRef.chapternumber === v.chapternumber &&
-      $projectedRef.versenumber === v.versenumber
+      $projectedRef.versenumber === v.versenumber &&
+      $livePreview.translation_abbr === abbr
     );
   }
+
+  $: currentAbbr = translations.find((t) => t.translationid === $translationId)?.abbreviation;
+
+  $: resultsWithLive = results.map((v) => ({ verse: v, live: computeLive(v, currentAbbr) }));
+  $: chapterVersesWithLive = chapterVerses.map((v) => ({ verse: v, live: computeLive(v, currentAbbr) }));
+  $: historyWithLive = historyEntries.map((entry) => ({
+    ...entry,
+    live: computeLive(entry.verse, entry.translation_abbr),
+  }));
 
   async function handleGlobalKeydown(e) {
     error = null;
@@ -228,6 +239,9 @@
             chapternumber: verse.chapternumber,
             versenumber: verse.versenumber,
           };
+          try {
+            await invoke('add_history_entry', { verse, translationAbbr: t ? t.abbreviation : '' });
+          } catch (e) { /* non-critical, don't surface as an error */ }
         }
       } catch (err) {
         error = err;
@@ -297,7 +311,7 @@
   }
 
   async function project(verse) {
-    if (isLive(verse)) return;
+    if (computeLive(verse, currentAbbr)) return;
     error = null;
     $isPanicked = false;
     const t = translations.find((t) => t.translationid === $translationId);
@@ -376,18 +390,18 @@
           </div>
 
           <div class="results">
-            {#each results as v}
-              <div class="result-card" class:live={isLive(v)}>
-                <div class="result-head">
-                  <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
-                  {#if isLive(v)}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
+              {#each resultsWithLive as { verse: v, live }}
+                <div class="result-card" class:live>
+                  <div class="result-head">
+                    <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
+                    {#if live}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
+                  </div>
+                  <p>{v.versetext}</p>
+                  <button on:click={() => project(v)} disabled={live}>
+                    {live ? 'On screen' : 'Project'}
+                  </button>
                 </div>
-                <p>{v.versetext}</p>
-                <button on:click={() => project(v)} disabled={isLive(v)}>
-                  {isLive(v) ? 'On screen' : 'Project'}
-                </button>
-              </div>
-            {/each}
+              {/each}
             {#if results.length === 0 && query}
               <p class="empty-hint">No results. Try a reference like "Jn 3:16" or a plain keyword.</p>
             {/if}
@@ -448,36 +462,36 @@
               {/if}
           {:else}
             <div class="results">
-              {#each chapterVerses as v}
-                <div class="result-card" class:live={isLive(v)}>
-                  <div class="result-head">
-                    <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
-                    {#if isLive(v)}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
+                {#each chapterVersesWithLive as { verse: v, live }}
+                  <div class="result-card" class:live>
+                    <div class="result-head">
+                      <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
+                      {#if live}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
+                    </div>
+                    <p>{v.versetext}</p>
+                    <button on:click={() => project(v)} disabled={live}>
+                      {live ? 'On screen' : 'Project'}
+                    </button>
                   </div>
-                  <p>{v.versetext}</p>
-                  <button on:click={() => project(v)} disabled={isLive(v)}>
-                    {isLive(v) ? 'On screen' : 'Project'}
-                  </button>
-                </div>
-              {/each}
+                {/each}
             </div>
           {/if}
         {/if}
 
         {#if $mode === 'history'}
                   <div class="results">
-                    {#each historyEntries as entry}
-                      <div class="result-card" class:live={isLive(entry.verse)}>
-                        <div class="result-head">
-                          <strong>{entry.verse.book_name} {entry.verse.chapternumber}:{entry.verse.versenumber}</strong>
-                          <span class="history-time">{entry.translation_abbr} · {entry.created_at}</span>
+                      {#each historyWithLive as entry}
+                        <div class="result-card" class:live={entry.live}>
+                          <div class="result-head">
+                            <strong>{entry.verse.book_name} {entry.verse.chapternumber}:{entry.verse.versenumber}</strong>
+                            <span class="history-time">{entry.translation_abbr} · {entry.created_at}</span>
+                          </div>
+                          <p>{entry.verse.versetext}</p>
+                          <button on:click={() => projectFromHistory(entry)} disabled={entry.live}>
+                            {entry.live ? 'On screen' : 'Project'}
+                          </button>
                         </div>
-                        <p>{entry.verse.versetext}</p>
-                        <button on:click={() => projectFromHistory(entry)} disabled={isLive(entry.verse)}>
-                          {isLive(entry.verse) ? 'On screen' : 'Project'}
-                        </button>
-                      </div>
-                    {/each}
+                      {/each}
                     {#if historyEntries.length === 0}
                       <p class="empty-hint">Nothing projected yet this session.</p>
                     {/if}
