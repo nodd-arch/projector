@@ -25,7 +25,7 @@ Built with **Tauri v2** (Rust) + **SvelteKit**, backed by a local SQLite databas
 - **Windows 10/11** (current build target)
 - [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
 - [Node.js](https://nodejs.org/) and [Bun](https://bun.sh/) (`npm install -g bun` or follow Bun's install docs)
-- A `bible.db` SQLite file with the expected schema [Download it here!](https://drive.google.com/file/d/1pWbZSeowKRf1C6LqDP4jO9v7HS5ZbzUo/view?usp=sharing) placed at `src-tauri/bible.db`
+- A `bible.db` SQLite file with the expected schema placed at `src-tauri/bible.db` |  ([Download it here!](https://drive.google.com/file/d/1pWbZSeowKRf1C6LqDP4jO9v7HS5ZbzUo/view?usp=sharing))
 
 ---
 
