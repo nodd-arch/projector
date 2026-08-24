@@ -63,5 +63,8 @@ desktop.ini
 db_inventory.txt
 bible.db
 static/
-icons/
 .vscode/
+
+android/
+ios/
+old-tauri-icons/

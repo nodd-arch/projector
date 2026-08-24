@@ -1,4 +1,4 @@
-# Scripture Projector
+# AGNUS PRO (Projector)
 
 A lightweight, keyboard-first scripture projection app for live services — search, browse, or recall a verse instantly and project it to a second window (for a physical projector or screen-sharing in Google Meet/Zoom).
 

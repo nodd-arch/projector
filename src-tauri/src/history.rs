@@ -9,13 +9,14 @@ pub fn init_history_db(app: &tauri::App) -> rusqlite::Result<()> {
     std::fs::create_dir_all(&dir).ok();
     let conn = Connection::open(dir.join("history.db"))?;
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS history (
+        "DROP TABLE IF EXISTS history;
+         CREATE TABLE history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             verse_json TEXT NOT NULL,
             translation_abbr TEXT NOT NULL,
+            session_id INTEGER NOT NULL,
             created_at TEXT DEFAULT (datetime('now'))
-        );
-        DELETE FROM history;",
+        );",
     )?;
     app.manage(HistoryState(Mutex::new(conn)));
     Ok(())

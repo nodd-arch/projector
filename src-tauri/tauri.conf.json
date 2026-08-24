@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "projector",
-  "version": "0.1.0",
-  "identifier": "projector",
+  "productName": "Agnus Pro",
+  "version": "0.1.1",
+  "identifier": "agnus-pro",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "control-panel",
-        "title": "Scripture Control Console",
+        "title": "Agnus Pro Console",
         "url": "/",
         "width": 1280,
         "height": 720,
@@ -22,11 +22,11 @@
       },
       {
         "label": "projection-screen",
-        "title": "Scripture Projection Output",
+        "title": "Agnus Pro - Output",
         "url": "/projection",
-        "width": 960,
-        "height": 540,
-        "decorations": true,
+        "width": 1080,
+        "height": 720,
+        "decorations": false,
         "resizable": true,
         "visible": false
       }

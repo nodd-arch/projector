@@ -4,7 +4,14 @@
   import { onMount, onDestroy } from 'svelte';
   import ScriptureDisplay from '$lib/ScriptureDisplay.svelte';
   import { convertFileSrc } from '@tauri-apps/api/core';
-  import { translationId, projectedRef, isPanicked, livePreview, mode } from '$lib/stores/session.js';
+  import {
+    translationId,
+    projectedRef,
+    isPanicked,
+    livePreview,
+    mode,
+    currentSessionId,
+  } from '$lib/stores/session.js';
 
   let query = '';
   let translations = [];
@@ -174,10 +181,19 @@
 
   $: resultsWithLive = results.map((v) => ({ verse: v, live: computeLive(v, currentAbbr) }));
   $: chapterVersesWithLive = chapterVerses.map((v) => ({ verse: v, live: computeLive(v, currentAbbr) }));
-  $: historyWithLive = historyEntries.map((entry) => ({
-    ...entry,
-    live: computeLive(entry.verse, entry.translation_abbr),
-  }));
+
+  // Group the flat history log into branching trails by session_id.
+  // Each deliberate Project click starts a new session; arrow-key stepping
+  // continues the current one. Newest trail shown first; each trail stays
+  // chronological internally so the "visited verses" strip reads left-to-right.
+  $: sessions = (() => {
+    const map = new Map();
+    for (const entry of historyEntries) {
+      if (!map.has(entry.session_id)) map.set(entry.session_id, []);
+      map.get(entry.session_id).push(entry);
+    }
+    return Array.from(map.values()).reverse();
+  })();
 
   async function handleGlobalKeydown(e) {
     error = null;
@@ -240,7 +256,11 @@
             versenumber: verse.versenumber,
           };
           try {
-            await invoke('add_history_entry', { verse, translationAbbr: t ? t.abbreviation : '' });
+            await invoke('add_history_entry', {
+              verse,
+              translationAbbr: t ? t.abbreviation : '',
+              sessionId: $currentSessionId,
+            });
           } catch (e) { /* non-critical, don't surface as an error */ }
         }
       } catch (err) {
@@ -301,15 +321,6 @@
     }
   }
 
-  async function openProjection() {
-    error = null;
-    try {
-      projectionStatus = await invoke('locate_and_project');
-    } catch (e) {
-      error = e;
-    }
-  }
-
   async function project(verse) {
     if (computeLive(verse, currentAbbr)) return;
     error = null;
@@ -320,12 +331,17 @@
       chapternumber: verse.chapternumber,
       versenumber: verse.versenumber,
     };
+    $currentSessionId = Date.now(); // deliberate project = new branch/session
     try {
       await invoke('push_to_projection', {
         verse,
         translationAbbr: t ? t.abbreviation : '',
       });
-      await invoke('add_history_entry', { verse, translationAbbr: t ? t.abbreviation : '' });
+      await invoke('add_history_entry', {
+        verse,
+        translationAbbr: t ? t.abbreviation : '',
+        sessionId: $currentSessionId,
+      });
     } catch (e) {
       error = e;
     }
@@ -354,197 +370,215 @@
 
 <div class="console">
   <div class="workspace">
-        <div class="toolbar">
-          <button on:click={toggleProjection}>
-            {projectionOpen ? 'Hide Projection Window' : 'Open Projection Window'}
-          </button>
-          {#if projectionStatus}<span class="status">{projectionStatus}</span>{/if}
-          <a class="settings-link" href="/settings">Settings</a>
-        </div>
+    <div class="toolbar">
+      <button on:click={toggleProjection}>
+        {projectionOpen ? 'Hide Projection Window' : 'Open Projection Window'}
+      </button>
+      {#if projectionStatus}<span class="status">{projectionStatus}</span>{/if}
+      <a class="settings-link" href="/settings">Settings</a>
+    </div>
 
-        <div class="mode-tabs">
-            <button class:active={$mode === 'search'} on:click={() => switchMode('search')}>Search</button>
-            <button class:active={$mode === 'browse'} on:click={() => switchMode('browse')}>Browse</button>
-            <button class:active={$mode === 'history'} on:click={() => switchMode('history')}>History</button>
-        </div>
+    <div class="mode-tabs">
+      <button class:active={$mode === 'search'} on:click={() => switchMode('search')}>Search</button>
+      <button class:active={$mode === 'browse'} on:click={() => switchMode('browse')}>Browse</button>
+      <button class:active={$mode === 'history'} on:click={() => switchMode('history')}>History</button>
+    </div>
 
-        {#if error}<p class="error">{error}</p>{/if}
+    {#if error}<p class="error">{error}</p>{/if}
 
-        {#if $mode === 'search'}
-          <div class="search-row">
-              <select
-                bind:value={$translationId}
-                on:change={(e) => handleTranslationChange(parseInt(e.target.value, 10))}
-              >
-              {#each translations as t, i}
-                <option value={t.translationid}>{i + 1} · {t.abbreviation}</option>
-              {/each}
-            </select>
-            <input
-              bind:this={searchInput}
-              bind:value={query}
-              on:keydown={(e) => e.key === 'Enter' && runSearch()}
-              placeholder="Jn 3:16 — or a keyword like righteousness"
-            />
-            <button on:click={runSearch}>Search</button>
-          </div>
+    {#if $mode === 'search'}
+      <div class="search-row">
+        <select
+          bind:value={$translationId}
+          on:change={(e) => handleTranslationChange(parseInt(e.target.value, 10))}
+        >
+          {#each translations as t, i}
+            <option value={t.translationid}>{i + 1} · {t.abbreviation}</option>
+          {/each}
+        </select>
+        <input
+          bind:this={searchInput}
+          bind:value={query}
+          on:keydown={(e) => e.key === 'Enter' && runSearch()}
+          placeholder="Jn 3:16 — or a keyword like righteousness"
+        />
+        <button on:click={runSearch}>Search</button>
+      </div>
 
-          <div class="results">
-              {#each resultsWithLive as { verse: v, live }}
-                <div class="result-card" class:live>
-                  <div class="result-head">
-                    <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
-                    {#if live}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
-                  </div>
-                  <p>{v.versetext}</p>
-                  <button on:click={() => project(v)} disabled={live}>
-                    {live ? 'On screen' : 'Project'}
-                  </button>
-                </div>
-              {/each}
-            {#if results.length === 0 && query}
-              <p class="empty-hint">No results. Try a reference like "Jn 3:16" or a plain keyword.</p>
-            {/if}
-          </div>
-        {/if}
-
-        {#if $mode === 'browse'}
-          <div class="browse-crumbs">
-            <button class:active={!selectedBook} on:click={() => { selectedBook = null; selectedChapter = null; }}>
-              Books
-            </button>
-            {#if selectedBook}
-              <span>/</span>
-              <button class:active={selectedBook && !selectedChapter} on:click={() => (selectedChapter = null)}>
-                {selectedBook.name}
-              </button>
-            {/if}
-            {#if selectedChapter}
-              <span>/</span>
-              <span>Chapter {selectedChapter}</span>
-            {/if}
-          </div>
-
-          {#if !selectedBook}
-            <input
-              class="book-filter"
-              bind:value={bookFilter}
-              placeholder="Filter books..."
-            />
-
-            <details open>
-              <summary>Old Testament ({otBooks.length})</summary>
-              <div class="grid">
-                {#each otBooks as b}
-                  <button class="grid-cell" on:click={() => pickBook(b)}>{b.name}</button>
-                {/each}
-              </div>
-            </details>
-
-            <details open>
-              <summary>New Testament ({ntBooks.length})</summary>
-              <div class="grid">
-                {#each ntBooks as b}
-                  <button class="grid-cell" on:click={() => pickBook(b)}>{b.name}</button>
-                {/each}
-              </div>
-            </details>
-
-            {:else if !selectedChapter}
-              {#if chapterCount === 0}
-                <p class="empty-hint">No chapters found for this book in the current translation.</p>
-              {:else}
-                <div class="grid">
-                  {#each Array(chapterCount) as _, i}
-                    <button class="grid-cell" on:click={() => pickChapter(i + 1)}>{i + 1}</button>
-                  {/each}
-                </div>
-              {/if}
-          {:else}
-            <div class="results">
-                {#each chapterVersesWithLive as { verse: v, live }}
-                  <div class="result-card" class:live>
-                    <div class="result-head">
-                      <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
-                      {#if live}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
-                    </div>
-                    <p>{v.versetext}</p>
-                    <button on:click={() => project(v)} disabled={live}>
-                      {live ? 'On screen' : 'Project'}
-                    </button>
-                  </div>
-                {/each}
+      <div class="results">
+        {#each resultsWithLive as { verse: v, live }}
+          <div class="result-card" class:live>
+            <div class="result-head">
+              <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
+              {#if live}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
             </div>
-          {/if}
-        {/if}
-
-        {#if $mode === 'history'}
-                  <div class="results">
-                      {#each historyWithLive as entry}
-                        <div class="result-card" class:live={entry.live}>
-                          <div class="result-head">
-                            <strong>{entry.verse.book_name} {entry.verse.chapternumber}:{entry.verse.versenumber}</strong>
-                            <span class="history-time">{entry.translation_abbr} · {entry.created_at}</span>
-                          </div>
-                          <p>{entry.verse.versetext}</p>
-                          <button on:click={() => projectFromHistory(entry)} disabled={entry.live}>
-                            {entry.live ? 'On screen' : 'Project'}
-                          </button>
-                        </div>
-                      {/each}
-                    {#if historyEntries.length === 0}
-                      <p class="empty-hint">Nothing projected yet this session.</p>
-                    {/if}
-                  </div>
-                {/if}
+            <p>{v.versetext}</p>
+            <button on:click={() => project(v)} disabled={live}>
+              {live ? 'On screen' : 'Project'}
+            </button>
           </div>
+        {/each}
+        {#if results.length === 0 && query}
+          <p class="empty-hint">No results. Try a reference like "Jn 3:16" or a plain keyword.</p>
+        {/if}
+      </div>
+    {/if}
 
-          <div class="monitor">
-              <div class="monitor-head">
-                {#if $livePreview}
-                  <span class="tally"><i class="dot"></i>ON AIR</span>
-                {:else}
-                  <span class="tally idle"><i class="dot"></i>STANDBY</span>
-                {/if}
-                <button class="remove-btn" on:click={removeProjection} disabled={!$livePreview || $isPanicked}>
-                  Remove Projection
-                </button>
-                <button class="remove-btn" on:click={restoreProjection} disabled={!$isPanicked}>
-                  Restore
-                </button>
+    {#if $mode === 'browse'}
+      <div class="browse-crumbs">
+        <button class:active={!selectedBook} on:click={() => { selectedBook = null; selectedChapter = null; }}>
+          Books
+        </button>
+        {#if selectedBook}
+          <span>/</span>
+          <button class:active={selectedBook && !selectedChapter} on:click={() => (selectedChapter = null)}>
+            {selectedBook.name}
+          </button>
+        {/if}
+        {#if selectedChapter}
+          <span>/</span>
+          <span>Chapter {selectedChapter}</span>
+        {/if}
+      </div>
+
+      {#if !selectedBook}
+        <input
+          class="book-filter"
+          bind:value={bookFilter}
+          placeholder="Filter books..."
+        />
+
+        <details open>
+          <summary>Old Testament ({otBooks.length})</summary>
+          <div class="grid">
+            {#each otBooks as b}
+              <button class="grid-cell" on:click={() => pickBook(b)}>{b.name}</button>
+            {/each}
+          </div>
+        </details>
+
+        <details open>
+          <summary>New Testament ({ntBooks.length})</summary>
+          <div class="grid">
+            {#each ntBooks as b}
+              <button class="grid-cell" on:click={() => pickBook(b)}>{b.name}</button>
+            {/each}
+          </div>
+        </details>
+      {:else if !selectedChapter}
+        {#if chapterCount === 0}
+          <p class="empty-hint">No chapters found for this book in the current translation.</p>
+        {:else}
+          <div class="grid">
+            {#each Array(chapterCount) as _, i}
+              <button class="grid-cell" on:click={() => pickChapter(i + 1)}>{i + 1}</button>
+            {/each}
+          </div>
+        {/if}
+      {:else}
+        <div class="results">
+          {#each chapterVersesWithLive as { verse: v, live }}
+            <div class="result-card" class:live>
+              <div class="result-head">
+                <strong>{v.book_name} {v.chapternumber}:{v.versenumber}</strong>
+                {#if live}<span class="tally"><i class="dot"></i>ON AIR</span>{/if}
               </div>
+              <p>{v.versetext}</p>
+              <button on:click={() => project(v)} disabled={live}>
+                {live ? 'On screen' : 'Project'}
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/if}
 
-              <div class="preview-canvas">
-                <div class="background-layer" style="{bgStyle} opacity: {background.opacity}"></div>
-                {#if background.kind === 'video'}
-                  <video class="background-layer" src={resolvedBgValue} autoplay loop muted
-                    style="opacity: {background.opacity}; object-position: {background.position || 'left'} center;"></video>
-                {/if}
-                <div class="text-layer" class:panicked={$isPanicked}>
-                  {#if $livePreview}
-                    <ScriptureDisplay
-                      verse={$livePreview.verse}
-                      translationAbbr={$livePreview.translation_abbr}
-                      fontFamily={displaySettings.fontFamily}
-                      weightNormal={displaySettings.weightNormal}
-                      weightWj={displaySettings.weightWj}
-                      colorNormal={displaySettings.colorNormal}
-                      colorWj={displaySettings.colorWj}
-                      colorBracket={displaySettings.colorBracket}
-                    />
-                  {:else}
-                    <p class="empty">Nothing projected</p>
+    {#if $mode === 'history'}
+      <div class="results">
+        {#each sessions as trail}
+          {@const root = trail[0]}
+          <div class="result-card" class:live={computeLive(root.verse, root.translation_abbr)}>
+            <div class="result-head">
+              <strong>{root.verse.book_name} {root.verse.chapternumber}:{root.verse.versenumber}</strong>
+              <span class="history-time">{root.translation_abbr} · {root.created_at}</span>
+            </div>
+            <p>{root.verse.versetext}</p>
+            <button on:click={() => projectFromHistory(root)} disabled={computeLive(root.verse, root.translation_abbr)}>
+              {computeLive(root.verse, root.translation_abbr) ? 'On screen' : 'Project'}
+            </button>
+
+            {#if trail.length > 1}
+              <div class="trail">
+                <span class="trail-label">Visited verses</span>
+                {#each trail as entry, i}
+                  {#if i > 0 && entry.verse.chapternumber !== trail[i - 1].verse.chapternumber}
+                    <span class="trail-divider">||</span>
                   {/if}
-                </div>
-              </div>
-
-            {#if $livePreview}
-              <div class="monitor-caption">
-                {$livePreview.verse.book_name} {$livePreview.verse.chapternumber}:{$livePreview.verse.versenumber}
-                <span class="translation-chip">{$livePreview.translation_abbr}</span>
+                  <button
+                    class="trail-chip"
+                    class:live={computeLive(entry.verse, entry.translation_abbr)}
+                    on:click={() => projectFromHistory(entry)}
+                  >
+                    {entry.verse.versenumber}
+                  </button>
+                {/each}
               </div>
             {/if}
           </div>
+        {/each}
+        {#if historyEntries.length === 0}
+          <p class="empty-hint">Nothing projected yet this session.</p>
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  <div class="monitor">
+    <div class="monitor-head">
+      {#if $livePreview}
+        <span class="tally"><i class="dot"></i>ON AIR</span>
+      {:else}
+        <span class="tally idle"><i class="dot"></i>STANDBY</span>
+      {/if}
+      <button class="remove-btn" on:click={removeProjection} disabled={!$livePreview || $isPanicked}>
+        Remove Projection
+      </button>
+      <button class="remove-btn" on:click={restoreProjection} disabled={!$isPanicked}>
+        Restore
+      </button>
+    </div>
+
+    <div class="preview-canvas">
+      <div class="background-layer" style="{bgStyle} opacity: {background.opacity}"></div>
+      {#if background.kind === 'video'}
+        <video class="background-layer" src={resolvedBgValue} autoplay loop muted
+          style="opacity: {background.opacity}; object-position: {background.position || 'left'} center;"></video>
+      {/if}
+      <div class="text-layer" class:panicked={$isPanicked}>
+        {#if $livePreview}
+          <ScriptureDisplay
+            verse={$livePreview.verse}
+            translationAbbr={$livePreview.translation_abbr}
+            fontFamily={displaySettings.fontFamily}
+            weightNormal={displaySettings.weightNormal}
+            weightWj={displaySettings.weightWj}
+            colorNormal={displaySettings.colorNormal}
+            colorWj={displaySettings.colorWj}
+            colorBracket={displaySettings.colorBracket}
+          />
+        {:else}
+          <p class="empty">Nothing projected</p>
+        {/if}
+      </div>
+    </div>
+
+    {#if $livePreview}
+      <div class="monitor-caption">
+        {$livePreview.verse.book_name} {$livePreview.verse.chapternumber}:{$livePreview.verse.versenumber}
+        <span class="translation-chip">{$livePreview.translation_abbr}</span>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -893,5 +927,49 @@
 
   summary:hover {
     color: var(--text-primary);
+  }
+
+  .trail {
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .trail-label {
+    font-size: 0.7rem;
+    color: var(--text-faint);
+    margin-right: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .trail-chip {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+  }
+
+  .trail-chip:hover {
+    color: var(--text-primary);
+    border-color: var(--text-faint);
+  }
+
+  .trail-chip.live {
+    border-color: var(--accent-live);
+    color: var(--accent-live);
+  }
+
+  .trail-divider {
+    color: var(--text-faint);
+    font-size: 0.8rem;
+    margin: 0 0.15rem;
   }
 </style>

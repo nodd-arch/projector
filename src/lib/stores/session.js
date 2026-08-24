@@ -5,3 +5,4 @@ export const projectedRef = writable(null); // { bookid, chapternumber, versenum
 export const isPanicked = writable(false);
 export const livePreview = writable(null); // { verse, translation_abbr }
 export const mode = writable('search'); // 'search' | 'browse' | 'history'
+export const currentSessionId = writable(Date.now());

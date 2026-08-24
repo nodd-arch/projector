@@ -341,17 +341,19 @@ pub fn get_history(
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = history.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT verse_json, translation_abbr, created_at FROM history ORDER BY id DESC LIMIT 100")
+        .prepare("SELECT verse_json, translation_abbr, created_at, session_id FROM history ORDER BY id ASC LIMIT 500")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
             let verse_json: String = row.get(0)?;
             let translation_abbr: String = row.get(1)?;
             let created_at: String = row.get(2)?;
+            let session_id: i64 = row.get(3)?;
             Ok(serde_json::json!({
                 "verse": serde_json::from_str::<serde_json::Value>(&verse_json).unwrap_or_default(),
                 "translation_abbr": translation_abbr,
                 "created_at": created_at,
+                "session_id": session_id,
             }))
         })
         .map_err(|e| e.to_string())?;
@@ -458,33 +460,38 @@ pub struct BackgroundConfig {
     pub opacity: f64,
     pub position: String, // "left" | "center" | "right"
 }
+
 #[tauri::command]
 pub fn add_history_entry(
     history: State<crate::history::HistoryState>,
     verse: Verse,
     translation_abbr: String,
+    session_id: i64,
 ) -> Result<(), String> {
     let conn = history.0.lock().map_err(|e| e.to_string())?;
 
-    let last: Option<(i64, String)> = conn
+    let last: Option<(i64, String, i64)> = conn
         .query_row(
-            "SELECT json_extract(verse_json, '$.verseid'), translation_abbr
+            "SELECT json_extract(verse_json, '$.verseid'), translation_abbr, session_id
              FROM history ORDER BY id DESC LIMIT 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .ok();
 
-    if let Some((last_verseid, last_abbr)) = last {
-        if last_verseid == verse.verseid && last_abbr == translation_abbr {
-            return Ok(()); // identical to the most recent entry, skip
+    if let Some((last_verseid, last_abbr, last_session)) = last {
+        if last_verseid == verse.verseid
+            && last_abbr == translation_abbr
+            && last_session == session_id
+        {
+            return Ok(()); // identical to the most recent entry in this session, skip
         }
     }
 
     let verse_json = serde_json::to_string(&verse).map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT INTO history (verse_json, translation_abbr) VALUES (?1, ?2)",
-        rusqlite::params![verse_json, translation_abbr],
+        "INSERT INTO history (verse_json, translation_abbr, session_id) VALUES (?1, ?2, ?3)",
+        rusqlite::params![verse_json, translation_abbr, session_id],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
